@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import cv2
+import matplotlib.pyplot as plt
 
 class MonoVO():
     def __init__(self, dataset_id):
@@ -20,11 +21,12 @@ class MonoVO():
         # Initialize Pose Data
         poses = []
         with open(os.path.abspath(os.curdir) + DATASET + "//poses.txt", 'r') as pose_data:
-            pose_param = [float(coord) for coord in pose_data.readline().split(' ')]
-            pose_param = np.reshape(pose_param, (3,4))
-            #vstack to form a 4x4 pose matrix
-            pose_param = np.vstack((pose_param, [0,0,0,1]))
-            poses.append(pose_param)
+            for line in pose_data:
+                pose_param = [float(coord) for coord in line.split(' ')]
+                pose_param = np.reshape(pose_param, (3,4))
+                #vstack to form a 4x4 pose matrix
+                pose_param = np.vstack((pose_param, [0,0,0,1]))
+                poses.append(pose_param)
         
         self.pose_data = poses
 
@@ -39,15 +41,14 @@ class MonoVO():
         kp_a = self.fast.detect(image_a, None)
         kp_a = np.array([kp.pt for kp in kp_a], dtype=np.float32).reshape(-1, 1, 2)
         # Compute feature tracking using KLT algorithm:
-        kp_b, status, err = cv2.calcOpticalFlowPyrLK(image_a, image_b, kp_a, None, winSize=(21, 21), maxLevel=3, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01), flags=0, minEigThreshold=0.001)
+        kp_b, status, err = cv2.calcOpticalFlowPyrLK(image_a, image_b, kp_a, None, winSize=(21, 21), maxLevel=3, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
         # Return the (successfully) tracked keypoints in both images.
         return kp_a[status == 1], kp_b[status == 1]
     
     def estimate_pose(self, kp_a, kp_b):
         E, mask = cv2.findEssentialMat(kp_a, kp_b, self.K)
         _, R, t, _ = cv2.recoverPose(E, points1=kp_a[mask], points2=kp_b[mask], cameraMatrix=self.K)
-        r, _ = cv2.Rodrigues(R)
-        return r, t
+        return R, t
     
     def get_scale(self, t):
         # Get XYZ coordinates at t-1, t, and then compute the scale.
@@ -56,14 +57,36 @@ class MonoVO():
         scale = np.linalg.norm(curr_pose - prev_pose)
         return scale
 
-
-
 def main():
     VO = MonoVO("00")
-    a, b = VO.track_features(1)
-    r, t = VO.estimate_pose(a, b)
-    print(r)
-    print(t)
+
+    curr_pose = VO.pose_data[0]
+    trajectory = [curr_pose[:2, 3].copy()]
+    actual_trajectory = [pose[:2, 3] for pose in VO.pose_data]
+    for t in range(1, 500):
+        print("Timestep: " + str(t) + "/" + str(len(VO.images)))
+        kp_a, kp_b = VO.track_features(t)
+        rotation, translation = VO.estimate_pose(kp_a, kp_b)
+        scale = VO.get_scale(t)
+        transform = np.eye(4)
+        transform[:3, :3] = rotation
+        transform[:3, 3] = scale * translation.squeeze()
+        curr_pose = curr_pose @ transform
+        print(curr_pose)
+        trajectory.append(curr_pose[:2, 3].copy())
+
+    trajectory = np.array(trajectory)
+    actual_trajectory = np.array(actual_trajectory)
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(trajectory[:, 0], trajectory[:, 1], label='Estimated Trajectory', color='b')
+    plt.plot(actual_trajectory[:, 0], actual_trajectory[:, 1], label='Actual Trajectory', color='r')
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.title('Estimated vs Actual Trajectory (X-Y Components)')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 if __name__ == "__main__":
     main()

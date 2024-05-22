@@ -32,59 +32,63 @@ class MonoVO():
 
         # Initialize Feature Detector
         self.fast = cv2.FastFeatureDetector_create(threshold=20)
-
-        # Initialize other Parameters
-        self.R = np.zeros(shape=(3, 3))
-        self.t = np.zeros(shape=(3, 3))
-        self.n_features = 0
+        self.features = 0
     
-    def track_features(self, time):
+    def track_features(self, t):
+        # This method takes the frames at timestep t-1, t, and tracks the features.
+        image_a = self.images[t-1]
+        image_b = self.images[t]
         # Use FAST detector to find the keypoints in the first image. Reshape to a 2D point vector.
-        if self.n_features < 2000:
-            kp_a = self.fast.detect(self.image_a, None)
+        if self.features < 2000:
+            kp_a = self.fast.detect(image_a, None)
             self.kp_a = np.array([kp.pt for kp in kp_a], dtype=np.float32).reshape(-1, 1, 2)
         # Compute feature tracking using KLT algorithm:
-        self.kp_b, status, err = cv2.calcOpticalFlowPyrLK(self.image_a, self.image_b, self.kp_a, None, winSize=(21, 21), maxLevel=3, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
-        
-        self.kp_aa = self.kp_a[status == 1]
-        self.kp_bb = self.kp_b[status == 1]
-        self.n_features = self.kp_bb.shape[0]
-
-        E, _ = cv2.findEssentialMat(self.kp_bb, self.kp_aa, self.K, cv2.RANSAC, 0.999, 1.0, None)
-        _, R, t, _ = cv2.recoverPose(E=E, points1=self.kp_aa, points2=self.kp_bb, cameraMatrix=self.K, mask=None)
-        if time == 1:
-            self.R = R
-            self.t = t
-        else:
-            scale = self.get_scale(time)
-            if (scale > 0.1 and abs(t[2][0]) > abs(t[0][0]) and abs(t[2][0]) > abs(t[1][0])):
-                self.t = self.t + scale*self.R.dot(t)
-                self.R = self.R.dot(R)
+        self.kp_b, status, err = cv2.calcOpticalFlowPyrLK(image_a, image_b, self.kp_a, None, winSize=(21, 21), maxLevel=3, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
+        # Return the (successfully) tracked keypoints in both images.
+        self.features = self.kp_b[status == 1].shape[0]
+        return self.kp_a[status == 1], self.kp_b[status == 1]
     
-    def get_scale(self, time):
+    def estimate_pose(self, kp_a, kp_b):
+        E, _ = cv2.findEssentialMat(kp_b, kp_a, self.K, cv2.RANSAC, 0.999, 1.0, None)
+        _, R, t, _ = cv2.recoverPose(E=E, points1=kp_a, points2=kp_b, cameraMatrix=self.K, mask=None)
+        return R, t
+    
+    def get_scale(self, t):
         # Get XYZ coordinates at t-1, t, and then compute the scale.
-        prev_pose = self.pose_data[time-1][:3, 3]
-        curr_pose = self.pose_data[time][:3, 3]
+        prev_pose = self.pose_data[t-1][:3, 3]
+        curr_pose = self.pose_data[t][:3, 3]
         scale = np.linalg.norm(curr_pose - prev_pose)
         return scale
 
 def main():
     VO = MonoVO("00")
-    trajectory = [VO.t[:3, 2].copy()]
+
+    rot = np.zeros(shape=(3,3))
+    trans = np.zeros(shape=(3,3))
+    trajectory = [trans[:3, 2].copy()]
     actual_trajectory = [pose[:3, 3] for pose in VO.pose_data]
-    for t in range(1, len(VO.images)):
-        print("Timestep: " + str(t) + "/" + str(len(VO.images)))
-        VO.image_a = VO.images[t-1]
-        VO.image_b = VO.images[t]
-        VO.track_features(t)
-        trajectory.append(-1 * VO.t[:3,0].copy())
+
+    for t in range(1, 500):
+        #print("Timestep: " + str(t) + "/" + str(len(VO.images)))
+        kp_a, kp_b = VO.track_features(t)
+        rotation, translation = VO.estimate_pose(kp_a, kp_b)
+        scale = VO.get_scale(t)
+        if t == 1:
+            rot = rotation
+            trans = translation
+        else:
+            if (scale > 0.1 and abs(translation[2][0]) > abs(translation[0][0]) and abs(translation[2][0]) > abs(translation[1][0])):
+                trans = trans + scale*rot.dot(translation)
+                rot = rot.dot(rotation)
+        print(trans)
+        trajectory.append(-1 * trans[:3, 0].copy())
 
     trajectory = np.array(trajectory)
     actual_trajectory = np.array(actual_trajectory)
 
     plt.figure(figsize=(10, 6))
     plt.plot(trajectory[:, 0], trajectory[:, 2], label='Estimated Trajectory', color='b')
-    plt.plot(actual_trajectory[:, 0], actual_trajectory[:, 2], label='Actual Trajectory', color='r')
+    plt.plot(actual_trajectory[:500, 0], actual_trajectory[:500, 2], label='Actual Trajectory', color='r')
     plt.xlabel('X')
     plt.ylabel('Y')
     plt.title('Estimated vs Actual Trajectory (X-Y Components)')

@@ -31,7 +31,7 @@ class MonoVO():
         self.pose_data = poses
 
         # Initialize Feature Detector
-        self.fast = cv2.FastFeatureDetector_create(threshold=20)
+        self.fast = cv2.FastFeatureDetector_create(threshold=25)
         self.features = 0
     
     def track_features(self, t):
@@ -51,7 +51,7 @@ class MonoVO():
     def estimate_pose(self, kp_a, kp_b):
         E, _ = cv2.findEssentialMat(kp_b, kp_a, self.K, cv2.RANSAC, 0.999, 1.0, None)
         _, R, t, _ = cv2.recoverPose(E=E, points1=kp_a, points2=kp_b, cameraMatrix=self.K, mask=None)
-        return R, t
+        return R, np.array([-1 * t[0], t[1], np.abs(t[2])])
     
     def get_scale(self, t):
         # Get XYZ coordinates at t-1, t, and then compute the scale.
@@ -68,7 +68,25 @@ def main():
     trajectory = [trans[:3, 2].copy()]
     actual_trajectory = [pose[:3, 3] for pose in VO.pose_data]
 
-    for t in range(1, 500):
+    plt.ion()
+    fig, axs = plt.subplots(1, 2, figsize=(15, 6))
+    
+    # Trajectory plot
+    ax_plot = axs[0]
+    ax_plot.set_xlabel('X')
+    ax_plot.set_ylabel('Y')
+    ax_plot.set_title('Estimated vs Actual Trajectory (X-Y Components)')
+    ax_plot.grid(True)
+    estimated_plot, = ax_plot.plot([], [], label='Estimated Trajectory', color='b')
+    actual_plot, = ax_plot.plot([], [], label='Actual Trajectory', color='r')
+    ax_plot.legend()
+
+    # Image plot
+    ax_image = axs[1]
+    img_plot = ax_image.imshow(VO.images[0], cmap='gray')
+    ax_image.set_title('Current Frame')
+    
+    for t in range(1, len(VO.images)):
         #print("Timestep: " + str(t) + "/" + str(len(VO.images)))
         kp_a, kp_b = VO.track_features(t)
         rotation, translation = VO.estimate_pose(kp_a, kp_b)
@@ -80,21 +98,31 @@ def main():
             if (scale > 0.1 and abs(translation[2][0]) > abs(translation[0][0]) and abs(translation[2][0]) > abs(translation[1][0])):
                 trans = trans + scale*rot.dot(translation)
                 rot = rot.dot(rotation)
-        print(trans)
-        trajectory.append(-1 * trans[:3, 0].copy())
+        trajectory.append(trans[:3, 0].copy())
 
+        trajectory_np = np.array(trajectory)
+        actual_trajectory_np = np.array(actual_trajectory[:t + 1])
+
+        # Update plot data
+        estimated_plot.set_data(trajectory_np[:, 0], trajectory_np[:, 2])
+        actual_plot.set_data(actual_trajectory_np[:, 0], actual_trajectory_np[:, 2])
+
+        # Update image data
+        img_plot.set_data(VO.images[t])
+
+        # Adjust plot limits
+        ax_plot.relim()
+        ax_plot.autoscale_view()
+
+        # Redraw the plots
+        plt.draw()
+        plt.pause(0.01)
+
+    plt.ioff()
+    plt.show()
     trajectory = np.array(trajectory)
     actual_trajectory = np.array(actual_trajectory)
-
-    plt.figure(figsize=(10, 6))
-    plt.plot(trajectory[:, 0], trajectory[:, 2], label='Estimated Trajectory', color='b')
-    plt.plot(actual_trajectory[:500, 0], actual_trajectory[:500, 2], label='Actual Trajectory', color='r')
-    plt.xlabel('X')
-    plt.ylabel('Y')
-    plt.title('Estimated vs Actual Trajectory (X-Y Components)')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    
 
 if __name__ == "__main__":
     main()

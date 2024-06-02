@@ -32,9 +32,14 @@ class MonoVO():
 
         # Initialize Feature Detector
         self.fast = cv2.FastFeatureDetector_create(threshold=25)
+        self.orb = cv2.ORB_create()
+        self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         self.features = 0
 
-        self.point_map = []
+        self.global_map = np.empty((0, 3))
+        self.global_descriptors = None
+        self.prev_keypoints = None
+        self.prev_descriptors = None
     
     def track_features(self, t):
         # This method takes the frames at timestep t-1, t, and tracks the features.
@@ -62,10 +67,30 @@ class MonoVO():
         scale = np.linalg.norm(curr_pose - prev_pose)
         return scale
     
-    def update_map(self, kp_a, kp_b, P_a, P_b):
-        triangulation = cv2.triangulatePoints(P_a, P_b, kp_a.T, kp_b.T)
+    def update_map(self, P_a, P_b, t):
+        image_a = self.images[t-1]
+        image_b = self.images[t]
+        kp_a, des_a = self.orb.detectAndCompute(image_a, None)
+        kp_b, des_b = self.orb.detectAndCompute(image_b, None)
+        
+        matches = self.bf.match(des_a, des_b)
+        matches = sorted(matches, key=lambda x: x.distance)
+        
+        kp_a_m = np.array([kp_a[m.queryIdx].pt for m in matches], dtype=np.float32).reshape(-1, 1, 2)
+        kp_b_m = np.array([kp_b[m.trainIdx].pt for m in matches], dtype=np.float32).reshape(-1, 1, 2)
+        
+        self.prev_keypoints = kp_b
+        self.prev_descriptors = des_b
+        triangulation = cv2.triangulatePoints(P_a, P_b, kp_a_m.T, kp_b_m.T)
         tr_tf = cv2.convertPointsFromHomogeneous(triangulation.T)
-        self.point_map.append(tr_tf.squeeze())
+        new_pts = tr_tf.squeeze()
+
+        if self.global_descriptors is None:
+            self.global_map = new_pts
+            self.global_descriptors = self.prev_descriptors
+        else:
+            self.global_map = np.vstack((self.global_map, new_pts))
+            self.global_descriptors = np.vstack((self.global_descriptors, self.prev_descriptors))
 
 def main():
 
@@ -113,8 +138,6 @@ def main():
         P_b = np.eye(4)
         P_b[:3, :3] = rot
         P_b[:3, 3] = trans.flatten()
-
-        VO.update_map(kp_a, kp_b, VO.K @ P_a[:3], VO.K @ P_b[:3])
 
         trajectory.append(trans[:3, 0].copy())
 

@@ -10,7 +10,7 @@ class MonoVO():
         DATASET = "//" + dataset_id
         path = os.path.abspath(os.curdir) + DATASET + "//image_0"
         image_paths = os.listdir(path)
-        self.images = np.load('VisualSLAM//images_00.npy')#np.array([cv2.imread(path + "//" + image_path, cv2.IMREAD_GRAYSCALE) for image_path in image_paths])
+        self.images = np.load("images_00.npy")#np.array([cv2.imread(path + "//" + image_path, cv2.IMREAD_GRAYSCALE) for image_path in image_paths])
 
         # Initialize Calibration
         with open(os.path.abspath(os.curdir) + DATASET + "//calib.txt", 'r') as calib:
@@ -32,14 +32,7 @@ class MonoVO():
 
         # Initialize Feature Detector
         self.fast = cv2.FastFeatureDetector_create(threshold=25)
-        self.orb = cv2.ORB_create()
-        self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         self.features = 0
-
-        self.global_map = np.empty((0, 3))
-        self.global_descriptors = None
-        self.prev_keypoints = None
-        self.prev_descriptors = None
     
     def track_features(self, t):
         # This method takes the frames at timestep t-1, t, and tracks the features.
@@ -66,44 +59,19 @@ class MonoVO():
         curr_pose = self.pose_data[t][:3, 3]
         scale = np.linalg.norm(curr_pose - prev_pose)
         return scale
-    
-    def update_map(self, P_a, P_b, t):
-        image_a = self.images[t-1]
-        image_b = self.images[t]
-        kp_a, des_a = self.orb.detectAndCompute(image_a, None)
-        kp_b, des_b = self.orb.detectAndCompute(image_b, None)
-        
-        matches = self.bf.match(des_a, des_b)
-        matches = sorted(matches, key=lambda x: x.distance)
-        
-        kp_a_m = np.array([kp_a[m.queryIdx].pt for m in matches], dtype=np.float32).reshape(-1, 1, 2)
-        kp_b_m = np.array([kp_b[m.trainIdx].pt for m in matches], dtype=np.float32).reshape(-1, 1, 2)
-        
-        self.prev_keypoints = kp_b
-        self.prev_descriptors = des_b
-        triangulation = cv2.triangulatePoints(P_a, P_b, kp_a_m.T, kp_b_m.T)
-        tr_tf = cv2.convertPointsFromHomogeneous(triangulation.T)
-        new_pts = tr_tf.squeeze()
-
-        if self.global_descriptors is None:
-            self.global_map = new_pts
-            self.global_descriptors = self.prev_descriptors
-        else:
-            self.global_map = np.vstack((self.global_map, new_pts))
-            self.global_descriptors = np.vstack((self.global_descriptors, self.prev_descriptors))
 
 def main():
-
-    # Initialize
     VO = MonoVO("00")
+
     rot = np.zeros(shape=(3,3))
     trans = np.zeros(shape=(3,3))
     trajectory = [trans[:3, 2].copy()]
     actual_trajectory = [pose[:3, 3] for pose in VO.pose_data]
 
-    # Set up visualization
     plt.ion()
     fig, axs = plt.subplots(1, 2, figsize=(15, 6))
+    
+    # Trajectory plot
     ax_plot = axs[0]
     ax_plot.set_xlabel('X')
     ax_plot.set_ylabel('Y')
@@ -112,43 +80,40 @@ def main():
     estimated_plot, = ax_plot.plot([], [], label='Estimated Trajectory', color='b')
     actual_plot, = ax_plot.plot([], [], label='Actual Trajectory', color='r')
     ax_plot.legend()
+
+    # Image plot
     ax_image = axs[1]
     img_plot = ax_image.imshow(VO.images[0], cmap='gray')
     ax_image.set_title('Current Frame')
     
     for t in range(1, len(VO.images)):
-        print("Timestep: " + str(t) + "/" + str(len(VO.images)))
         kp_a, kp_b = VO.track_features(t)
         rotation, translation = VO.estimate_pose(kp_a, kp_b)
         scale = VO.get_scale(t)
-
-        # Compute project matrices, update coordinates, map observations
-        P_a = np.eye(4)
-
         if t == 1:
             rot = rotation
             trans = translation
         else:
-            P_a[:3, :3] = rot
-            P_a[:3, 3] = trans.flatten()
             if (scale > 0.1 and abs(translation[2][0]) > abs(translation[0][0]) and abs(translation[2][0]) > abs(translation[1][0])):
                 trans = trans + scale*rot.dot(translation)
                 rot = rot.dot(rotation)
-        
-        P_b = np.eye(4)
-        P_b[:3, :3] = rot
-        P_b[:3, 3] = trans.flatten()
-
         trajectory.append(trans[:3, 0].copy())
 
-        # Update plots with new data
         trajectory_np = np.array(trajectory)
         actual_trajectory_np = np.array(actual_trajectory[:t + 1])
+
+        # Update plot data
         estimated_plot.set_data(trajectory_np[:, 0], trajectory_np[:, 2])
         actual_plot.set_data(actual_trajectory_np[:, 0], actual_trajectory_np[:, 2])
+
+        # Update image data
         img_plot.set_data(VO.images[t])
+
+        # Adjust plot limits
         ax_plot.relim()
         ax_plot.autoscale_view()
+
+        # Redraw the plots
         plt.draw()
         plt.pause(0.01)
 

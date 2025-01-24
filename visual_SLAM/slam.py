@@ -1,80 +1,117 @@
 import numpy as np
 import cv2
-import os,sys
-from triangulation import triangulate
+import os
+import sys
 from camera import denormalize, normalize, Camera
 from display import Display
 from match_frames import generate_match
 from desc import Descriptor, Point
+import pdb
 
+def calibrate_image(image):
+    """
+    Calibrate the image using camera intrinsics.
+    """
+    return cv2.resize(image, (960, 540))
 
-F= int(os.getenv("F","500"))
-W, H = 1920//2, 1080//2
-K = np.array([[F,0,W//2],[0,F,H//2],[0,0,1]]) # intrinsics
-desc_dict = Descriptor()
-# if os.getenv("D3D") is not None:
-desc_dict.create_viewer()
+def triangulate_points(pose1, pose2, pts1, pts2):
+    """
+    Triangulate 3D points from two camera poses and corresponding 2D points.
+    """
+    points_3d = np.zeros((pts1.shape[0], 4))
+    pose1_inv = np.linalg.inv(pose1)
+    pose2_inv = np.linalg.inv(pose2)
+    
+    for i, (pt1, pt2) in enumerate(zip(pts1, pts2)):
+        A = np.array([
+            pt1[0] * pose1_inv[2] - pose1_inv[0],
+            pt1[1] * pose1_inv[2] - pose1_inv[1],
+            pt2[0] * pose2_inv[2] - pose2_inv[0],
+            pt2[1] * pose2_inv[2] - pose2_inv[1]
+        ])
+        _, _, vt = np.linalg.svd(A)
+        points_3d[i] = vt[-1]
+    
+    return points_3d
 
-# disp = None
-# if os.getenv("D2D") is not None:
-disp = Display(W, H)
+def process_frame(image):
+    """
+    Process a single frame to perform SLAM.
+    """
+    image = calibrate_image(image)
+    current_frame = Camera(desc_dict, image, K)
 
-def calibrate(image):
-    # camera intrinsics...<================Check this
-    image = cv2.resize(image, (W,H))
-    return image
-
-def generate_SLAM(image):
-    image = calibrate(image)
-    print("Thisis a test0")
-    frame = Camera(desc_dict, image, K)
-    if frame.id == 0:
+    if current_frame.id == 0:
         return
-    frame1 = desc_dict.frames[-1]
-    frame2 = desc_dict.frames[-2]
 
-    x1,x2,Id = generate_match(frame1,frame2)
-    frame1.pose =np.dot(Id,frame2.pose)
-    for i,idx in enumerate(x2):
-        if frame2.pts[idx] is not None:
-            frame2.pts[idx].add_observation(frame1,x1[i])
-    # homogeneous 3-D coords
-    print("Thisis a test1")
-    pts4d = triangulate(frame1.pose, frame2.pose, frame1.key_pts[x1], frame2.key_pts[x2])
-    pts4d /= pts4d[:, 3:]
-    unmatched_points = np.array([frame1.pts[i] is None for i in x1])
-    print("Adding:  %d points" % np.sum(unmatched_points))
-    good_pts4d = (np.abs(pts4d[:, 3]) > 0.005) & (pts4d[:, 2] > 0) & unmatched_points
+    prev_frame = desc_dict.frames[-1]
+    older_frame = desc_dict.frames[-2]
+    x1, x2, relative_pose = generate_match(prev_frame, older_frame)
+    prev_frame.pose = np.dot(relative_pose, older_frame.pose)
 
-    for i,p in enumerate(pts4d):
-        if not good_pts4d[i]:
-          continue
-        pt = Point(desc_dict, p)
-        pt.add_observation(frame1, x1[i])
-        pt.add_observation(frame2, x2[i])
+    for i, idx in enumerate(x2):
+        if older_frame.pts[idx] is not None:
+            older_frame.pts[idx].add_observation(prev_frame, x1[i])
 
-    for pt1, pt2 in zip(frame1.key_pts[x1], frame2.key_pts[x2]):
+    points_3d = triangulate_points(prev_frame.pose, older_frame.pose, 
+                                   prev_frame.key_pts[x1], older_frame.key_pts[x2])
+    
+    points_3d /= points_3d[:, 3:]  # Normalize homogeneous coordinates
+
+    unmatched_points = np.array([prev_frame.pts[i] is None for i in x1])
+    valid_points = (np.abs(points_3d[:, 3]) > 0.005) & (points_3d[:, 2] > 0) & unmatched_points
+
+    for i, point in enumerate(points_3d):
+        if not valid_points[i]:
+            continue
+        pt = Point(desc_dict, point)
+        pt.add_observation(prev_frame, x1[i])
+        pt.add_observation(older_frame, x2[i])
+
+    for pt1, pt2 in zip(prev_frame.key_pts[x1], older_frame.key_pts[x2]):
         u1, v1 = denormalize(K, pt1)
         u2, v2 = denormalize(K, pt2)
-        cv2.circle(image, (u1, v1), color=(0,255,0), radius=1)
-        cv2.line(image, (u1, v1), (u2, v2), color=(255, 255,0))
+        cv2.circle(image, (u1, v1), color=(0, 255, 0), radius=1)
+        cv2.line(image, (u1, v1), (u2, v2), color=(255, 255, 0))
 
-    # 2-D display
-    if disp is not None:
+    if disp:
         disp.display2D(image)
-    # 3-D display
+        print("sello")
+
     desc_dict.display()
 
 if __name__ == "__main__":
+    # Constants
     video_frames_path = sys.argv[1]
     video_frames = np.load(video_frames_path)
-    print("Video loaded successfully. Starting SLAM...")
-    test_display = Display(W, H)
+    os.chdir("../../..")
+    DATASET = "//00"
+
+    print("hello")
+    # Initialize Calibration
+    with open(os.path.abspath(os.curdir) + DATASET + "//calib.txt", 'r') as calib:
+        calib_params = [float(item) for item in calib.readline().split(' ')[1:]]
+        P = np.reshape(calib_params, (3,4))
+        K = P[:3, :3]
+
+    print("hello")
+
+    # Initialize descriptor and display
+    desc_dict = Descriptor()
+    desc_dict.create_viewer()
+    disp = Display(960, 540)
+
+    print("hello")
+    print('b')
+    print('e')
+
     for frame in video_frames:
         frame_resized = cv2.resize(frame, (720, 400))
+        print("aello")
         cv2.imshow("Frame", frame_resized)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
-        generate_SLAM(frame_resized)
-
+        print("bello")
+        process_frame(frame_resized)
+        print("cello")
     cv2.destroyAllWindows()

@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 class MonoVO():
     def __init__(self, dataset_id):
         # Load Data
-        os.chdir("..")
+        os.chdir("../..")
         DATASET = "//" + dataset_id
         path = os.path.abspath(os.curdir) + DATASET + "//image_0"
         image_paths = os.listdir(path)

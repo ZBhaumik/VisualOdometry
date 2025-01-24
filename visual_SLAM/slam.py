@@ -76,7 +76,6 @@ def process_frame(image):
 
     if disp:
         disp.display2D(image)
-        print("sello")
 
     desc_dict.display()
 
@@ -87,31 +86,21 @@ if __name__ == "__main__":
     os.chdir("../../..")
     DATASET = "//00"
 
-    print("hello")
     # Initialize Calibration
     with open(os.path.abspath(os.curdir) + DATASET + "//calib.txt", 'r') as calib:
         calib_params = [float(item) for item in calib.readline().split(' ')[1:]]
         P = np.reshape(calib_params, (3,4))
         K = P[:3, :3]
 
-    print("hello")
-
     # Initialize descriptor and display
     desc_dict = Descriptor()
     desc_dict.create_viewer()
     disp = Display(960, 540)
 
-    print("hello")
-    print('b')
-    print('e')
-
     for frame in video_frames:
         frame_resized = cv2.resize(frame, (720, 400))
-        print("aello")
         cv2.imshow("Frame", frame_resized)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
-        print("bello")
         process_frame(frame_resized)
-        print("cello")
     cv2.destroyAllWindows()

@@ -3,7 +3,6 @@ import cv2
 import os
 import sys
 from camera import denormalize, normalize, Camera
-from display import Display
 from match_frames import generate_match
 from desc import Descriptor, Point
 
@@ -36,7 +35,6 @@ def process_frame(image):
     """
     image = calibrate_image(image)
     current_frame = Camera(desc_dict, image, K)
-
     if current_frame.id == 0:
         return
 
@@ -71,10 +69,9 @@ def process_frame(image):
         cv2.circle(image, (u1, v1), color=(0, 255, 0), radius=1)
         cv2.line(image, (u1, v1), (u2, v2), color=(255, 255, 0))
 
-    if disp:
-        disp.display2D(image)
-
-    desc_dict.display()
+    # 3D point cloud visualization.
+    desc_dict.update_viewer()
+    return image
 
 if __name__ == "__main__":
     # Constants
@@ -89,15 +86,16 @@ if __name__ == "__main__":
         P = np.reshape(calib_params, (3,4))
         K = P[:3, :3]
 
-    # Initialize descriptor and display
     desc_dict = Descriptor()
     desc_dict.create_viewer()
-    disp = Display(960, 540)
 
     for frame in video_frames:
         frame_resized = cv2.resize(frame, (720, 400))
-        cv2.imshow("Frame", frame_resized)
+        processed_frame = process_frame(frame_resized)
+        if(processed_frame is not None):
+            cv2.imshow("Frame", processed_frame)
+        else:
+            cv2.imshow("Frame", frame_resized)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
-        process_frame(frame_resized)
     cv2.destroyAllWindows()

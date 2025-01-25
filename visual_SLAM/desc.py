@@ -1,7 +1,7 @@
 from scipy.optimize import least_squares
-from multiprocessing import Process, Queue
 import numpy as np
 import open3d as o3d
+import time
 
 class Point:
     def __init__(self, m1, l1):
@@ -31,7 +31,7 @@ class Descriptor:
         self.frames = []
         self.points = []
         self.state = None
-        self.q = None
+        self.point_cloud = None
         self.max_frame = 0  # Set max_frame for point pruning
 
     def optimize(self, local_window, fix_points, verbose, rounds, culling_threshold):
@@ -122,54 +122,45 @@ class Descriptor:
             proj = proj[:2] / proj[2]
             errs.append(np.linalg.norm(proj - uv))
         return errs
-
+    
     def create_viewer(self):
-        """Create a separate process for 3D viewer."""
-        self.q = Queue()
-        self.vp = Process(target=self._viewer_thread, args=(self.q,))
-        self.vp.daemon = True
-        self.vp.start()
-
-    def _viewer_thread(self, q):
-        """Thread that updates the 3D viewer."""
-        self._viewer_init(1024, 768)
-        while True:
-            self._viewer_refresh(q)
-
-    def _viewer_init(self, w, h):
         """Initialize the 3D viewer."""
         self.vis = o3d.visualization.Visualizer()
-        self.vis.create_window(window_name="3D Viewer", width=w, height=h)
+        self.vis.create_window(window_name="3D Viewer", width=1024, height=768)
         self.point_cloud = o3d.geometry.PointCloud()
-        self.camera_poses = []
         self.vis.add_geometry(self.point_cloud)
+        frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
+        self.vis.add_geometry(frame)
+        self.view_control = self.vis.get_view_control()
+        self.vis.run()
 
-    def _viewer_refresh(self, q):
-        """Refresh the 3D viewer with new data."""
-        if self.state is None or not q.empty():
-            self.state = q.get()
-
-        poses, points = self.state
-        # Update point cloud
+    def update_viewer(self):
+        """Update the 3D viewer with new data."""
+        self.state = (np.array([p.pt for p in self.points]), np.array([frame.pose for frame in self.frames]))
+        if self.state is None:
+            return
+        points, poses = self.state
         self.point_cloud.points = o3d.utility.Vector3dVector(points[:, :3])
+
+        """
+        view_control.set_lookat(poses[-1][:3, 3])
+        view_control.set_up(pose[:3, 1])
+        view_control.set_front(pose[:3, 2])
+        view_control.set_zoom(10)  # Optional: adjust the zoom level
+        view_control.set_constant_z_far(200)  # Optional: adjust the far plane
+        """
+
         self.vis.update_geometry(self.point_cloud)
-
-        # Update camera poses (optional: visualize as coordinate frames)
-        for pose in poses:
-            frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
-            frame.transform(pose)
-            self.vis.add_geometry(frame)
-
+        R = poses[-1][:3, :3]
+        R_trans = np.dot([[-1, 0, 0], [0, -1, 0], [0, 0, 1]], R)
+        poses[-1][:3, :3] = R_trans
+        poses[-1][2, 3] = poses[-1][2, 3] * -1
+        poses[-1][0, 3] = poses[-1][0, 3] * -1
+        cam = self.view_control.convert_to_pinhole_camera_parameters()
+        cam.extrinsic = poses[-1] # where T is your matrix
+        self.view_control.convert_from_pinhole_camera_parameters(cam)
+        self.view_control.set_constant_z_far(1000)  # Optional: adjust the far plane
+        self.view_control.set_zoom(10)
         self.vis.poll_events()
         self.vis.update_renderer()
-
-    def display(self):
-        """Display the current state in the viewer."""
-        if self.q is None:
-            return
-        poses, pts = [], []
-        for f in self.frames:
-            poses.append(f.pose)
-        for p in self.points:
-            pts.append(p.pt)
-        self.q.put((np.array(poses), np.array(pts)))
+        self.vis.run()

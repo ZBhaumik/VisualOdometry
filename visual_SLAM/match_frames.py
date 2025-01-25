@@ -12,7 +12,7 @@ def add_ones(x):
 
 #Getting rid of the outliers:
 def extractRt(F):
-  W = np.mat([[0,-1,0],[1,0,0],[0,0,1]],dtype=float)
+  W = np.asmatrix([[0,-1,0],[1,0,0],[0,0,1]],dtype=float)
   U,d,Vt = np.linalg.svd(F)
   #assert np.linalg.det(U) > 0
   if np.linalg.det(Vt) < 0:

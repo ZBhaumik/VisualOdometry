@@ -6,12 +6,8 @@ from camera import denormalize, normalize, Camera
 from display import Display
 from match_frames import generate_match
 from desc import Descriptor, Point
-import pdb
 
 def calibrate_image(image):
-    """
-    Calibrate the image using camera intrinsics.
-    """
     return cv2.resize(image, (960, 540))
 
 def triangulate_points(pose1, pose2, pts1, pts2):
@@ -71,6 +67,7 @@ def process_frame(image):
     for pt1, pt2 in zip(prev_frame.key_pts[x1], older_frame.key_pts[x2]):
         u1, v1 = denormalize(K, pt1)
         u2, v2 = denormalize(K, pt2)
+        # How the optical flow is displayed.
         cv2.circle(image, (u1, v1), color=(0, 255, 0), radius=1)
         cv2.line(image, (u1, v1), (u2, v2), color=(255, 255, 0))
 

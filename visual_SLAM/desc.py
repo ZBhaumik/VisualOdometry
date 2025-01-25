@@ -151,7 +151,7 @@ class Descriptor:
 
         poses, points = self.state
         # Update point cloud
-        self.point_cloud.points = o3d.utility.Vector3dVector(points)
+        self.point_cloud.points = o3d.utility.Vector3dVector(points[:, :3])
         self.vis.update_geometry(self.point_cloud)
 
         # Update camera poses (optional: visualize as coordinate frames)

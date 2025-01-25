@@ -11,8 +11,8 @@ def featureMapping(image):
 def normalize(K_inv, pts):
   return np.dot(K_inv, np.concatenate([pts, np.ones((pts.shape[0], 1))], axis=1).T).T[:, 0:2]
 
-def denormalize(count, pt):
-  ret = np.dot(count, np.array([pt[0], pt[1], 1.0]))
+def denormalize(K, pt):
+  ret = np.dot(K, np.array([pt[0], pt[1], 1.0]))
   ret /= ret[2]
   return int(round(ret[0])), int(round(ret[1]))
 

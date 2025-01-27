@@ -37,6 +37,8 @@ class Descriptor:
         self.point_cloud = None
         self.max_frame = 0  # Set max_frame for point pruning
         self.K = K
+        self.old_points = []
+        self.old_frames = []
 
     def rotate(self, points, rot_vecs):
         # Rodrigues rotation formula from https://scipy-cookbook.readthedocs.io/items/bundle_adjustment.html
@@ -67,7 +69,6 @@ class Descriptor:
         m = camera_indices.size * 2
         n = n_cameras * 6 + n_points * 3
         A = lil_matrix((m, n), dtype=int)
-
         i = np.arange(camera_indices.size)
         for s in range(6):
             A[2 * i, camera_indices * 6 + s] = 1
@@ -81,6 +82,11 @@ class Descriptor:
     def bundle_adjustment(self):
         # Construct relevant variables.
         points_3d = np.array([p.pt[:3] for p in self.points])
+
+        # Copy old points and frames for comparison.
+        self.old_points = self.points.copy()
+        self.old_frames = self.frames.copy()
+
         n_cameras = len(self.frames)
         camera_params = np.zeros((n_cameras, 6))
         for i, frame in enumerate(self.frames):
@@ -170,7 +176,16 @@ class Descriptor:
         self.vis.update_renderer()
         self.vis.run()
     
-    def save_point_cloud(self):
-        o3d.io.write_point_cloud("no_bundle_adjustment.pcd", self.point_cloud)
-        np.save("no_bundle_adjustment.npy", self.point_cloud.points)
-        print(len(self.point_cloud.points))  
+    def save_state(self):
+        # Save a lot of data to analyse later because this takes a LONG time to run.
+        old_pt_cld = o3d.geometry.PointCloud()
+        old_pt_cld.points = o3d.utility.Vector3dVector(self.old_points[:, :3])
+        o3d.io.write_point_cloud("no_BA_pcd.pcd", old_pt_cld)
+        np.save("no_BA_pts.npy", self.point_cloud.points)
+        np.save("no_BA_poses.npy", self.old_frames)
+
+        new_pt_cld = o3d.geometry.PointCloud()
+        new_pt_cld.points = o3d.utility.Vector3dVector(self.points[:, :3])
+        o3d.io.write_point_cloud("enabled_BA_pcd.pcd", old_pt_cld)
+        np.save("enabled_BA_pts.npy", self.point_cloud.points)
+        np.save("enabled_BA_poses.npy", self.frames)  

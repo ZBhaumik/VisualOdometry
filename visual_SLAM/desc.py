@@ -34,18 +34,40 @@ class Descriptor:
         self.point_cloud = None
         self.max_frame = 0  # Set max_frame for point pruning
 
-    def optimize(self):
-        points_3d = np.array([p.pt[:3] for p in self.points])
-        poses = np.array([frame.pose for frame in self.frames])
+    def optimize(self, window_size=5):
+        """
+        Perform local bundle adjustment over a sliding window of frames.
+        
+        Args:
+            window_size (int): Number of recent frames to include in the optimization.
+        """
+        if len(self.frames) < window_size:
+            print("Not enough frames for local optimization.")
+            return
+
+        # Select the most recent frames and points observed in those frames
+        recent_frames = self.frames[-window_size:]
+        recent_frame_ids = [frame.id for frame in recent_frames]
+        
+        # Find points observed in the selected frames
+        recent_points = []
+        for point in self.points:
+            if any(frame.id in recent_frame_ids for frame in point.frames):
+                recent_points.append(point)
+
+        # Prepare data for optimization
+        points_3d = np.array([p.pt[:3] for p in recent_points])
+        poses = np.array([frame.pose for frame in recent_frames])
 
         observations = []
-        for point in self.points:
+        for point in recent_points:
             for frame, idx in zip(point.frames, point.idxs):
-                observations.append((point.id, frame.id, frame.key_pts[idx]))
+                if frame.id in recent_frame_ids:
+                    observations.append((recent_points.index(point), recent_frame_ids.index(frame.id), frame.key_pts[idx]))
 
         def reprojection_error(params):
-            n_points = len(self.points)
-            n_frames = len(self.frames)
+            n_points = len(recent_points)
+            n_frames = len(recent_frames)
 
             # Extract points and poses from flattened parameters
             points = params[:n_points * 3].reshape((n_points, 3))
@@ -76,17 +98,17 @@ class Descriptor:
 
         # Update points and poses with optimized values
         optimized_params = result.x
-        n_points = len(self.points)
+        n_points = len(recent_points)
         points_optimized = optimized_params[:n_points * 3].reshape((n_points, 3))
-        poses_optimized = optimized_params[n_points * 3:].reshape((len(self.frames), 4, 4))
+        poses_optimized = optimized_params[n_points * 3:].reshape((len(recent_frames), 4, 4))
 
-        for i, point in enumerate(self.points):
+        for i, point in enumerate(recent_points):
             point.pt = points_optimized[i]
 
-        for i, frame in enumerate(self.frames):
+        for i, frame in enumerate(recent_frames):
             frame.pose = poses_optimized[i]
 
-        print(f"Optimization completed with cost: {result.cost}")
+        print(f"Local bundle adjustment completed with cost: {result.cost}")
 
     
     def create_viewer(self):

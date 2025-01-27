@@ -2,6 +2,9 @@ from scipy.optimize import least_squares
 import numpy as np
 import open3d as o3d
 import time
+import cv2
+from camera import denormalize
+from scipy.sparse import lil_matrix
 
 class Point:
     def __init__(self, m1, l1):
@@ -27,89 +30,115 @@ class Point:
         self.idxs.clear()
 
 class Descriptor:
-    def __init__(self):
+    def __init__(self, K):
         self.frames = []
         self.points = []
         self.state = None
         self.point_cloud = None
         self.max_frame = 0  # Set max_frame for point pruning
+        self.K = K
 
-    def optimize(self, window_size=5):
-        """
-        Perform local bundle adjustment over a sliding window of frames.
-        
-        Args:
-            window_size (int): Number of recent frames to include in the optimization.
-        """
-        if len(self.frames) < window_size:
-            print("Not enough frames for local optimization.")
-            return
+    def rotate(self, points, rot_vecs):
+        # Rodrigues rotation formula from https://scipy-cookbook.readthedocs.io/items/bundle_adjustment.html
+        theta = np.linalg.norm(rot_vecs, axis=1)[:, np.newaxis]
+        with np.errstate(invalid='ignore'):
+            v = rot_vecs / theta
+            v = np.nan_to_num(v)
+        dot = np.sum(points * v, axis=1)[:, np.newaxis]
+        cos_theta = np.cos(theta)
+        sin_theta = np.sin(theta)
+        return cos_theta * points + sin_theta * np.cross(v, points) + dot * (1 - cos_theta) * v
+    
+    def project(self, points, camera_params):
+        """Convert 3-D points to 2-D by projecting onto images."""
+        points_proj = self.rotate(points, camera_params[:, :3]) # Rotate
+        points_proj += camera_params[:, 3:6] # Translate
+        points_proj = np.dot(points_proj, self.K.T) # Project
+        points_proj = points_proj[:, :2] / points_proj[:, 2, np.newaxis]
+        return points_proj
+    
+    def fun(self, params, n_cameras, n_points, camera_indices, point_indices, points_2d):
+        camera_params = params[:n_cameras * 6].reshape((n_cameras, 6))
+        points_3d = params[n_cameras * 6:].reshape((n_points, 3))
+        points_proj = self.project(points_3d[point_indices], camera_params[camera_indices])
+        return (points_proj - points_2d).ravel()
+    
+    def sparse_jacobian(self, n_cameras, n_points, camera_indices, point_indices):
+        m = camera_indices.size * 2
+        n = n_cameras * 6 + n_points * 3
+        A = lil_matrix((m, n), dtype=int)
 
-        # Select the most recent frames and points observed in those frames
-        recent_frames = self.frames[-window_size:]
-        recent_frame_ids = [frame.id for frame in recent_frames]
-        
-        # Find points observed in the selected frames
-        recent_points = []
-        for point in self.points:
-            if any(frame.id in recent_frame_ids for frame in point.frames):
-                recent_points.append(point)
+        i = np.arange(camera_indices.size)
+        for s in range(6):
+            A[2 * i, camera_indices * 6 + s] = 1
+            A[2 * i + 1, camera_indices * 6 + s] = 1
+        for s in range(3):
+            A[2 * i, n_cameras * 6 + point_indices * 3 + s] = 1
+            A[2 * i + 1, n_cameras * 6 + point_indices * 3 + s] = 1
+        return A
+    
 
-        # Prepare data for optimization
-        points_3d = np.array([p.pt[:3] for p in recent_points])
-        poses = np.array([frame.pose for frame in recent_frames])
+    def bundle_adjustment(self):
+        # Construct relevant variables.
+        points_3d = np.array([p.pt[:3] for p in self.points])
+        n_cameras = len(self.frames)
+        camera_params = np.zeros((n_cameras, 6))
+        for i, frame in enumerate(self.frames):
+            # Extract rotation matrix and convert to Rodrigues vector
+            rotation_matrix = frame.pose[:3, :3]
+            rodrigues_vector, _ = cv2.Rodrigues(rotation_matrix)
+            translation_vector = frame.pose[:3, 3]
+            camera_params[i, :3] = rodrigues_vector.flatten()
+            camera_params[i, 3:6] = translation_vector
+        camera_ind = []
+        point_ind = []
+        points_2d = []
+        for frame_idx, frame in enumerate(self.frames):
+            for pt_idx, point in enumerate(frame.pts):
+                if point is not None:
+                    camera_ind.append(frame_idx)
+                    point_ind.append(point.id)
+                    points_2d.append(denormalize(self.K, frame.key_pts[pt_idx]))
 
-        observations = []
-        for point in recent_points:
-            for frame, idx in zip(point.frames, point.idxs):
-                if frame.id in recent_frame_ids:
-                    observations.append((recent_points.index(point), recent_frame_ids.index(frame.id), frame.key_pts[idx]))
+        camera_ind = np.array(camera_ind)
+        point_ind = np.array(point_ind)
+        points_2d = np.array(points_2d)
 
-        def reprojection_error(params):
-            n_points = len(recent_points)
-            n_frames = len(recent_frames)
+        n = 6 * n_cameras + 3 * points_3d.shape[0]
+        m = 2 * points_2d.shape[0]
+        print("n_cameras: {}".format(n_cameras))
+        print("n_points: {}".format(points_3d.shape[0]))
+        print("Total number of parameters: {}".format(n))
+        print("Total number of residuals: {}".format(m))
+        print(points_2d)
+        print(self.project(points_3d[point_ind], camera_params[camera_ind]))
+        x0 = np.hstack((camera_params.ravel(), points_3d.ravel()))
+        f0 = self.fun(x0, n_cameras, points_3d.shape[0], camera_ind, point_ind, points_2d)
+        t0 = time.time()
+        A = self.sparse_jacobian(n_cameras, points_3d.shape[0], camera_ind, point_ind)
+        res = least_squares(self.fun, x0, jac_sparsity=A, verbose=2, x_scale='jac', ftol=1e-4, method='trf',
+                            args=(n_cameras, points_3d.shape[0], camera_ind, point_ind, points_2d))
+        t1 = time.time()
+        print("Optimization took {0:.0f} seconds".format(t1 - t0))
 
-            # Extract points and poses from flattened parameters
-            points = params[:n_points * 3].reshape((n_points, 3))
-            poses = params[n_points * 3:].reshape((n_frames, 4, 4))
+        # Extract optimized parameters
+        optimized_camera_params = res.x[:6 * n_cameras].reshape((n_cameras, 6))
+        optimized_points_3d = res.x[6 * n_cameras:].reshape((-1, 3))
 
-            errors = []
-            for point_id, frame_id, observed_pt in observations:
-                # Project the 3D point into the frame's image plane
-                point_h = np.append(points[point_id], 1)  # Homogeneous coordinates
-                projected = poses[frame_id] @ point_h
-                projected /= projected[2]  # Normalize by depth
-                projected_2d = projected[:2]
+        # Update camera parameters
+        for i, frame in enumerate(self.frames):
+            rodrigues_vector = optimized_camera_params[i, :3]
+            rotation_matrix, _ = cv2.Rodrigues(rodrigues_vector)
+            translation_vector = optimized_camera_params[i, 3:6]
+            frame.pose[:3, :3] = rotation_matrix
+            frame.pose[:3, 3] = translation_vector
 
-                error = observed_pt - projected_2d
-                errors.extend(error)
+        # Update 3D points
+        for i, point in enumerate(self.points):
+            point.pt[:3] = optimized_points_3d[i]
 
-            return np.array(errors)
-
-        # Flatten the initial parameters for optimization
-        initial_params = np.hstack([points_3d.flatten(), poses.flatten()])
-
-        # Perform bundle adjustment
-        result = least_squares(
-            reprojection_error,
-            initial_params,
-            verbose=2
-        )
-
-        # Update points and poses with optimized values
-        optimized_params = result.x
-        n_points = len(recent_points)
-        points_optimized = optimized_params[:n_points * 3].reshape((n_points, 3))
-        poses_optimized = optimized_params[n_points * 3:].reshape((len(recent_frames), 4, 4))
-
-        for i, point in enumerate(recent_points):
-            point.pt = points_optimized[i]
-
-        for i, frame in enumerate(recent_frames):
-            frame.pose = poses_optimized[i]
-
-        print(f"Local bundle adjustment completed with cost: {result.cost}")
-
+        print("Optimization complete. Parameters updated.")
+        return f0, res
     
     def create_viewer(self):
         """Initialize the 3D viewer."""
@@ -118,14 +147,19 @@ class Descriptor:
         self.point_cloud = o3d.geometry.PointCloud()
         self.vis.add_geometry(self.point_cloud)
         self.vis.run()
-
-    def update_viewer(self):
-        """Update the 3D viewer with new data."""
+    
+    def update(self):
         self.state = (np.array([p.pt for p in self.points]), np.array([frame.pose for frame in self.frames]))
         if self.state is None:
             return
         points, poses = self.state
         self.point_cloud.points = o3d.utility.Vector3dVector(points[:, :3])
+        return poses
+
+    def update_viewer(self):
+        """Update the 3D viewer with new data."""
+        poses = self.update()
+        
         frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
         frame.transform(poses[-1])
         self.vis.add_geometry(frame)
@@ -133,16 +167,10 @@ class Descriptor:
         self.vis.update_geometry(self.point_cloud)  
         self.vis.poll_events()
 
-        #camera_params = self.view_control.convert_to_pinhole_camera_parameters()
-        #extmat = camera_params.extrinsic.copy()
-        #extmat[:3, :3] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-        #camera_params.extrinsic = extmat
-        #self.view_control.convert_from_pinhole_camera_parameters(camera_params)
-
         self.vis.update_renderer()
         self.vis.run()
     
     def save_point_cloud(self):
         o3d.io.write_point_cloud("no_bundle_adjustment.pcd", self.point_cloud)
         np.save("no_bundle_adjustment.npy", self.point_cloud.points)
-        print(len(self.point_cloud.points))   
+        print(len(self.point_cloud.points))  

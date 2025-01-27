@@ -5,6 +5,7 @@ import sys
 from camera import denormalize, normalize, Camera
 from match_frames import generate_match
 from desc import Descriptor, Point
+import matplotlib.pyplot as plt
 
 def calibrate_image(image):
     return cv2.resize(image, (960, 540))
@@ -70,7 +71,7 @@ def process_frame(image):
         cv2.line(image, (u1, v1), (u2, v2), color=(255, 255, 0))
 
     # 3D point cloud visualization.
-    desc_dict.update_viewer()
+    desc_dict.update()
     return image
 
 if __name__ == "__main__":
@@ -86,16 +87,28 @@ if __name__ == "__main__":
         P = np.reshape(calib_params, (3,4))
         K = P[:3, :3]
 
-    desc_dict = Descriptor()
+    desc_dict = Descriptor(K)
     desc_dict.create_viewer()
 
+    i = 0
+
     for frame in video_frames:
+        i = i+1
         frame_resized = cv2.resize(frame, (720, 400))
         processed_frame = process_frame(frame_resized)
-        if(processed_frame is not None):
-            cv2.imshow("Frame", processed_frame)
-        else:
-            cv2.imshow("Frame", frame_resized)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        #if(processed_frame is not None):
+            #cv2.imshow("Frame", processed_frame)
+        #else:
+            #cv2.imshow("Frame", frame_resized)
+        #if cv2.waitKey(1) & 0xFF == ord('q'):
+            #break
+        if(i == 50):
             break
+    a, b = desc_dict.bundle_adjustment()
+    plt.plot(a)
+    plt.show()
+    plt.plot(b.fun)
+    plt.show()
+    desc_dict.update_viewer()
+    desc_dict.save_point_cloud()
     cv2.destroyAllWindows()

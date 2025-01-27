@@ -34,94 +34,60 @@ class Descriptor:
         self.point_cloud = None
         self.max_frame = 0  # Set max_frame for point pruning
 
-    def optimize(self, local_window, fix_points, verbose, rounds, culling_threshold):
-        """Perform Bundle Adjustment optimization and keypoint pruning."""
-        # Set up initial parameters (camera poses and 3D points)
-        params = self._setup_initial_params()
-        # Perform Bundle Adjustment optimization
-        result = self._bundle_adjustment(params, local_window, fix_points, verbose, rounds)
-        # Update points and frames with optimized parameters
-        self._update_optimized_params(result)
-        # Key-Point Pruning
-        _ = self._prune_points(culling_threshold)
-        
-        return result.fun  # Return the final residuals
+    def optimize(self):
+        points_3d = np.array([p.pt[:3] for p in self.points])
+        poses = np.array([frame.pose for frame in self.frames])
 
-    def _setup_initial_params(self):
-        params = []
-        # Add camera poses
-        for frame in self.frames:
-            params.extend(frame.pose[:3].flatten())
-            params.extend(frame.pose[3:].flatten())
-
+        observations = []
         for point in self.points:
-            params.extend(point.pt)
+            for frame, idx in zip(point.frames, point.idxs):
+                observations.append((point.id, frame.id, frame.key_pts[idx]))
 
-        return np.array(params)
+        def reprojection_error(params):
+            n_points = len(self.points)
+            n_frames = len(self.frames)
 
-    def _bundle_adjustment(self, params, local_window, fix_points, verbose, rounds):
-        # Define the cost function
-        def cost_function(params):
-            residuals = []
-            # Update the camera poses and 3D points from the parameters
-            idx = 0
-            for frame in self.frames:
-                frame.pose[:3] = params[idx:idx+3]
-                frame.pose[3:] = params[idx+3:idx+6]
-                idx += 6
+            # Extract points and poses from flattened parameters
+            points = params[:n_points * 3].reshape((n_points, 3))
+            poses = params[n_points * 3:].reshape((n_frames, 4, 4))
 
-            for point in self.points:
-                point.pt = params[idx:idx+3]
-                idx += 3
+            errors = []
+            for point_id, frame_id, observed_pt in observations:
+                # Project the 3D point into the frame's image plane
+                point_h = np.append(points[point_id], 1)  # Homogeneous coordinates
+                projected = poses[frame_id] @ point_h
+                projected /= projected[2]  # Normalize by depth
+                projected_2d = projected[:2]
 
-            # Calculate residuals (reprojection errors)
-            for p in self.points:
-                for f, idx in zip(p.frames, p.idxs):
-                    uv = f.kps[idx]  # observed keypoint
-                    proj = np.dot(f.pose[:3], p.homogeneous())  # project 3D point to 2D
-                    proj = proj[:2] / proj[2]  # Convert to homogeneous coordinates
-                    residuals.append(np.linalg.norm(proj - uv))  # Compute the residual (error)
+                error = observed_pt - projected_2d
+                errors.extend(error)
 
-            return np.array(residuals)
+            return np.array(errors)
 
-        result = least_squares(cost_function, params, verbose=verbose, max_nfev=rounds)
+        # Flatten the initial parameters for optimization
+        initial_params = np.hstack([points_3d.flatten(), poses.flatten()])
 
-        return result
+        # Perform bundle adjustment
+        result = least_squares(
+            reprojection_error,
+            initial_params,
+            verbose=2
+        )
 
-    def _update_optimized_params(self, result):
-        idx = 0
-        for frame in self.frames:
-            frame.pose[:3] = result.x[idx:idx+3]
-            frame.pose[3:] = result.x[idx+3:idx+6]
-            idx += 6
+        # Update points and poses with optimized values
+        optimized_params = result.x
+        n_points = len(self.points)
+        points_optimized = optimized_params[:n_points * 3].reshape((n_points, 3))
+        poses_optimized = optimized_params[n_points * 3:].reshape((len(self.frames), 4, 4))
 
-        for point in self.points:
-            point.pt = result.x[idx:idx+3]
-            idx += 3
+        for i, point in enumerate(self.points):
+            point.pt = points_optimized[i]
 
-    def _prune_points(self, culling_threshold):
-        """Prune points based on reprojection error and observation age."""
-        culled_pt_count = 0
-        for p in self.points:
-            old_point = len(p.frames) <= 4 and p.frames[-1].id + 7 < self.max_frame
-            errs = self._calculate_reprojection_error(p)
+        for i, frame in enumerate(self.frames):
+            frame.pose = poses_optimized[i]
 
-            if old_point or np.mean(errs) > culling_threshold:
-                culled_pt_count += 1
-                self.points.remove(p)
-                p.delete()
+        print(f"Optimization completed with cost: {result.cost}")
 
-        return culled_pt_count
-
-    def _calculate_reprojection_error(self, point):
-        """Calculate reprojection error for a point across all frames."""
-        errs = []
-        for f, idx in zip(point.frames, point.idxs):
-            uv = f.kps[idx]
-            proj = np.dot(f.pose[:3], point.homogeneous())
-            proj = proj[:2] / proj[2]
-            errs.append(np.linalg.norm(proj - uv))
-        return errs
     
     def create_viewer(self):
         """Initialize the 3D viewer."""
@@ -129,9 +95,6 @@ class Descriptor:
         self.vis.create_window(window_name="3D Viewer", width=1024, height=768)
         self.point_cloud = o3d.geometry.PointCloud()
         self.vis.add_geometry(self.point_cloud)
-        frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
-        self.vis.add_geometry(frame)
-        self.view_control = self.vis.get_view_control()
         self.vis.run()
 
     def update_viewer(self):
@@ -141,26 +104,23 @@ class Descriptor:
             return
         points, poses = self.state
         self.point_cloud.points = o3d.utility.Vector3dVector(points[:, :3])
+        frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
+        frame.transform(poses[-1])
+        self.vis.add_geometry(frame)
 
-        """
-        view_control.set_lookat(poses[-1][:3, 3])
-        view_control.set_up(pose[:3, 1])
-        view_control.set_front(pose[:3, 2])
-        view_control.set_zoom(10)  # Optional: adjust the zoom level
-        view_control.set_constant_z_far(200)  # Optional: adjust the far plane
-        """
-
-        self.vis.update_geometry(self.point_cloud)
-        R = poses[-1][:3, :3]
-        R_trans = np.dot([[-1, 0, 0], [0, -1, 0], [0, 0, 1]], R)
-        poses[-1][:3, :3] = R_trans
-        poses[-1][2, 3] = poses[-1][2, 3] * -1
-        poses[-1][0, 3] = poses[-1][0, 3] * -1
-        cam = self.view_control.convert_to_pinhole_camera_parameters()
-        cam.extrinsic = poses[-1] # where T is your matrix
-        self.view_control.convert_from_pinhole_camera_parameters(cam)
-        self.view_control.set_constant_z_far(1000)  # Optional: adjust the far plane
-        self.view_control.set_zoom(10)
+        self.vis.update_geometry(self.point_cloud)  
         self.vis.poll_events()
+
+        #camera_params = self.view_control.convert_to_pinhole_camera_parameters()
+        #extmat = camera_params.extrinsic.copy()
+        #extmat[:3, :3] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        #camera_params.extrinsic = extmat
+        #self.view_control.convert_from_pinhole_camera_parameters(camera_params)
+
         self.vis.update_renderer()
         self.vis.run()
+    
+    def save_point_cloud(self):
+        o3d.io.write_point_cloud("no_bundle_adjustment.pcd", self.point_cloud)
+        np.save("no_bundle_adjustment.npy", self.point_cloud.points)
+        print(len(self.point_cloud.points))   

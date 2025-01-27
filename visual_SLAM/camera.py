@@ -3,7 +3,7 @@ import cv2
 
 def featureMapping(image):
   orb = cv2.ORB_create()
-  pts = cv2.goodFeaturesToTrack(image.astype(np.uint8), 1200, qualityLevel=0.01, minDistance=8)
+  pts = cv2.goodFeaturesToTrack(image.astype(np.uint8), 1000, qualityLevel=0.01, minDistance=8)
   key_pts = [cv2.KeyPoint(point[0][0], point[0][1], 10) for point in pts]
   key_pts, descriptors = orb.compute(image, key_pts)
   return np.array([(kp.pt[0], kp.pt[1]) for kp in key_pts]), descriptors

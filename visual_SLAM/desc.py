@@ -29,6 +29,14 @@ class Point:
             frame.pts[self.idxs[self.frames.index(frame)]] = None
         self.frames.clear()
         self.idxs.clear()
+    
+    def __getstate__(self):
+        list_a = [frame.id for frame in self.frames]  # Store frame IDs
+        self.frames = list_a
+        return self.__dict__
+
+    def __setstate__(self, state):
+        self.__dict__ = state
 
 class Descriptor:
     def __init__(self, K):
@@ -192,6 +200,10 @@ class Descriptor:
         self.K = data["K"]  
         self.frames = data["frames"]
         self.points = data["points"]
+        frame_dict = {frame.id: frame for frame in self.frames}
+        for point in self.points:
+            list_a = [frame_dict[frame_id] for frame_id in point.frames if frame_id in frame_dict]
+            point.frames = list_a
     
     def save_state(self):
         # Save a lot of data to analyse later because this takes a LONG time to run.

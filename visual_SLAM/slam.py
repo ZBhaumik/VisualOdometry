@@ -76,6 +76,7 @@ def process_frame(image):
 
 if __name__ == "__main__":
     # Constants
+    sys.setrecursionlimit(1999999999)
     video_frames_path = sys.argv[1]
     video_frames = np.load(video_frames_path)
     os.chdir("../../..")
@@ -103,8 +104,8 @@ if __name__ == "__main__":
             #cv2.imshow("Frame", frame_resized)
         #if cv2.waitKey(1) & 0xFF == ord('q'):
             #break
-        if(i == 30):
-            break
+        #if(i == 30):
+            #break
     #a, b = desc_dict.bundle_adjustment()
     desc_dict.pickle()
     #desc_dict.save_state()

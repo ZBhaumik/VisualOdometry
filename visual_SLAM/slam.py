@@ -93,6 +93,7 @@ if __name__ == "__main__":
     i = 0
 
     for frame in video_frames:
+        print(i)
         i = i+1
         frame_resized = cv2.resize(frame, (720, 400))
         processed_frame = process_frame(frame_resized)
@@ -102,13 +103,14 @@ if __name__ == "__main__":
             #cv2.imshow("Frame", frame_resized)
         #if cv2.waitKey(1) & 0xFF == ord('q'):
             #break
-        if(i == 50):
+        if(i == 30):
             break
-    a, b = desc_dict.bundle_adjustment()
-    plt.plot(a)
-    plt.show()
-    plt.plot(b.fun)
-    plt.show()
-    desc_dict.update_viewer()
-    desc_dict.save_point_cloud()
+    #a, b = desc_dict.bundle_adjustment()
+    desc_dict.pickle()
+    #desc_dict.save_state()
+    #plt.plot(a)
+    #plt.show()
+    #plt.plot(b.fun)
+    #plt.show()
+    #desc_dict.update_viewer()
     cv2.destroyAllWindows()

@@ -5,6 +5,7 @@ import time
 import cv2
 from camera import denormalize
 from scipy.sparse import lil_matrix
+import pickle
 
 class Point:
     def __init__(self, m1, l1):
@@ -35,7 +36,6 @@ class Descriptor:
         self.points = []
         self.state = None
         self.point_cloud = None
-        self.max_frame = 0  # Set max_frame for point pruning
         self.K = K
         self.old_points = []
         self.old_frames = []
@@ -175,17 +175,34 @@ class Descriptor:
 
         self.vis.update_renderer()
         self.vis.run()
+
+    def pickle(self, filename="full_data_00.pkl"):
+        data = {
+            "frames": self.frames,
+            "points": self.points,
+            "K": self.K
+        }
+        with open(filename, "wb") as f:
+            pickle.dump(data, f)
+        print(f"Descriptor state saved to {filename}")
+    
+    def load_pickle(self, filename="full_data_00.pkl"):
+        with open(filename, "rb") as f:
+            data = pickle.load(f)
+        self.K = data["K"]  
+        self.frames = data["frames"]
+        self.points = data["points"]
     
     def save_state(self):
         # Save a lot of data to analyse later because this takes a LONG time to run.
         old_pt_cld = o3d.geometry.PointCloud()
-        old_pt_cld.points = o3d.utility.Vector3dVector(self.old_points[:, :3])
+        old_pt_cld.points = o3d.utility.Vector3dVector(np.array([p.pt[:3] for p in self.old_points]))
         o3d.io.write_point_cloud("no_BA_pcd.pcd", old_pt_cld)
-        np.save("no_BA_pts.npy", self.point_cloud.points)
-        np.save("no_BA_poses.npy", self.old_frames)
+        np.save("no_BA_pts.npy", old_pt_cld.points)
+        np.save("no_BA_poses.npy", np.array([frame.pose for frame in self.old_frames]))
 
         new_pt_cld = o3d.geometry.PointCloud()
-        new_pt_cld.points = o3d.utility.Vector3dVector(self.points[:, :3])
-        o3d.io.write_point_cloud("enabled_BA_pcd.pcd", old_pt_cld)
-        np.save("enabled_BA_pts.npy", self.point_cloud.points)
-        np.save("enabled_BA_poses.npy", self.frames)  
+        new_pt_cld.points = o3d.utility.Vector3dVector(np.array([p.pt[:3] for p in self.points]))
+        o3d.io.write_point_cloud("enabled_BA_pcd.pcd", new_pt_cld)
+        np.save("enabled_BA_pts.npy", new_pt_cld.points)
+        np.save("enabled_BA_poses.npy", np.array([frame.pose for frame in self.frames]))  

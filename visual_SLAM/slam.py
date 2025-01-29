@@ -104,8 +104,8 @@ if __name__ == "__main__":
             #cv2.imshow("Frame", frame_resized)
         #if cv2.waitKey(1) & 0xFF == ord('q'):
             #break
-        #if(i == 30):
-            #break
+        if(i == 150):
+            break
     #a, b = desc_dict.bundle_adjustment()
     desc_dict.pickle()
     #desc_dict.save_state()

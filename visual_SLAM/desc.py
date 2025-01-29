@@ -25,13 +25,13 @@ class Point:
 
     def delete(self):
         """Delete this point's observations and remove it from the map."""
-        for frame in self.frames:
-            frame.pts[self.idxs[self.frames.index(frame)]] = None
+        for idx, frame in zip(self.idxs, self.frames):
+            frame.pts[idx] = None
         self.frames.clear()
         self.idxs.clear()
     
     def __getstate__(self):
-        list_a = [frame.id for frame in self.frames]  # Store frame IDs
+        list_a = [frame.id for frame in self.frames]
         self.frames = list_a
         return self.__dict__
 

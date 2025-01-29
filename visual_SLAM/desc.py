@@ -116,6 +116,7 @@ class Descriptor:
 
         camera_ind = np.array(camera_ind)
         point_ind = np.array(point_ind)
+        print(len(point_ind))
         points_2d = np.array(points_2d)
 
         n = 6 * n_cameras + 3 * points_3d.shape[0]

@@ -50,7 +50,7 @@ def triangulate_points(pose1, pose2, pts1, pts2):
     
     return points_3d
 
-def process_frame(image):
+def process_frame(image, scale):
     """
     Process a single frame to perform SLAM.
     """
@@ -62,7 +62,7 @@ def process_frame(image):
     prev_frame = desc_dict.frames[-1]
     older_frame = desc_dict.frames[-2]
 
-    x1, x2, transform = relative_pose(prev_frame, older_frame, K)#generate_match(prev_frame, older_frame)
+    x1, x2, transform = generate_match(prev_frame, older_frame)
     prev_frame.pose = update_pose(older_frame.pose, transform, scale)
     print(prev_frame.pose[:3, 3])
 
@@ -124,12 +124,11 @@ if __name__ == "__main__":
 
     for t in range(1, len(video_frames)):
         frame = video_frames[t]
-        frame_resized = cv2.resize(frame, (720, 400))
-        processed_frame = process_frame(cv2.resize(video_frames[t-1], (720, 400)), frame_resized, get_scale(poses, t))
+        processed_frame = process_frame(frame, get_scale(poses, t))
         if(processed_frame is not None):
             cv2.imshow("Frame", processed_frame)
         else:
-            cv2.imshow("Frame", frame_resized)
+            cv2.imshow("Frame", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
         #if(t == 150):

@@ -91,10 +91,6 @@ class Descriptor:
         # Construct relevant variables.
         points_3d = np.array([p.pt[:3] for p in self.points])
 
-        # Copy old points and frames for comparison.
-        self.old_points = self.points.copy()
-        self.old_frames = self.frames.copy()
-
         n_cameras = len(self.frames)
         camera_params = np.zeros((n_cameras, 6))
         for i, frame in enumerate(self.frames):
@@ -208,14 +204,8 @@ class Descriptor:
     
     def save_state(self):
         # Save a lot of data to analyse later because this takes a LONG time to run.
-        old_pt_cld = o3d.geometry.PointCloud()
-        old_pt_cld.points = o3d.utility.Vector3dVector(np.array([p.pt[:3] for p in self.old_points]))
-        o3d.io.write_point_cloud("no_BA_pcd.pcd", old_pt_cld)
-        np.save("no_BA_pts.npy", old_pt_cld.points)
-        np.save("no_BA_poses.npy", np.array([frame.pose for frame in self.old_frames]))
-
         new_pt_cld = o3d.geometry.PointCloud()
         new_pt_cld.points = o3d.utility.Vector3dVector(np.array([p.pt[:3] for p in self.points]))
-        o3d.io.write_point_cloud("enabled_BA_pcd.pcd", new_pt_cld)
-        np.save("enabled_BA_pts.npy", new_pt_cld.points)
-        np.save("enabled_BA_poses.npy", np.array([frame.pose for frame in self.frames]))  
+        o3d.io.write_point_cloud("saved_pcd.pcd", new_pt_cld)
+        np.save("saved_pts.npy", new_pt_cld.points)
+        np.save("saved_poses.npy", np.array([frame.pose for frame in self.frames]))  

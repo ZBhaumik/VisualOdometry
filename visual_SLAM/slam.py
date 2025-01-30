@@ -72,9 +72,9 @@ def process_frame(image, scale):
     pose_inv = np.linalg.inv(prev_frame.pose)
 
     projected_points = np.dot(pose_inv[:3, :3], points_3d.T).T + pose_inv[:3, 3]
-    print(projected_points)
+    #print(projected_points)
     unmatched_points = np.array([prev_frame.pts[i] is None for i in x1])
-    valid_points = (np.abs(points_4d[:, 3]) > 0.005) & (projected_points[:, 2] > 0) & unmatched_points
+    valid_points = unmatched_points & (projected_points[:, 2] < 50) & (projected_points[:, 2] > 0)
 
     for i, point in enumerate(points_3d):
         if not valid_points[i]:
@@ -91,7 +91,7 @@ def process_frame(image, scale):
         cv2.line(image, (u1, v1), (u2, v2), color=(255, 255, 0))
 
     # 3D point cloud visualization.
-    desc_dict.update_viewer()
+    desc_dict.update()
     return image
 
 if __name__ == "__main__":

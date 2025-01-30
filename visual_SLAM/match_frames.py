@@ -4,9 +4,6 @@ from skimage.measure import ransac
 from camera import denormalize
 from skimage.transform import EssentialMatrixTransform
 
-def add_ones(x):
-  return np.concatenate([x, np.ones((x.shape[0], 1))], axis=1)
-
 def extractRt(F):
   W = np.asmatrix([[0,-1,0],[1,0,0],[0,0,1]],dtype=float)
   U,_,Vt = np.linalg.svd(F)

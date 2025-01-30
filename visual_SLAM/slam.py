@@ -6,6 +6,7 @@ from camera import denormalize, normalize, Camera
 from match_frames import generate_match, relative_pose
 from desc import Descriptor, Point
 import matplotlib.pyplot as plt
+import time
 
 def get_scale(poses, t):
     # Get XYZ coordinates at t-1, t, and then compute the scale.
@@ -31,13 +32,9 @@ def calibrate_image(image):
     return cv2.resize(image, (960, 540))
 
 def triangulate_points(pose1, pose2, pts1, pts2):
-    """
-    Triangulate 3D points from two camera poses and corresponding 2D points.
-    """
     points_3d = np.zeros((pts1.shape[0], 4))
     pose1_inv = np.linalg.inv(pose1)
     pose2_inv = np.linalg.inv(pose2)
-    
     for i, (pt1, pt2) in enumerate(zip(pts1, pts2)):
         A = np.array([
             pt1[0] * pose1_inv[2] - pose1_inv[0],
@@ -64,17 +61,20 @@ def process_frame(image, scale):
 
     x1, x2, transform = generate_match(prev_frame, older_frame)
     prev_frame.pose = update_pose(older_frame.pose, transform, scale)#np.dot(transform, older_frame.pose)#update_pose(older_frame.pose, transform, scale)
-    print(prev_frame.pose[:3, 3])
 
     for i, idx in enumerate(x2):
         if older_frame.pts[idx] is not None:
             older_frame.pts[idx].add_observation(prev_frame, x1[i])
 
-    points_3d = triangulate_points(prev_frame.pose, older_frame.pose, 
-                                   prev_frame.key_pts[x1], older_frame.key_pts[x2])
-    points_3d /= points_3d[:, 3:]
+    points_4d = triangulate_points(prev_frame.pose, older_frame.pose, prev_frame.key_pts[x1], older_frame.key_pts[x2])
+    points_3d = points_4d[:, :3] / points_4d[:, 3:]
+
+    pose_inv = np.linalg.inv(prev_frame.pose)
+
+    projected_points = np.dot(pose_inv[:3, :3], points_3d.T).T + pose_inv[:3, 3]
+    print(projected_points)
     unmatched_points = np.array([prev_frame.pts[i] is None for i in x1])
-    valid_points = (np.abs(points_3d[:, 3]) > 0.005) & (points_3d[:, 2] > 0) & unmatched_points
+    valid_points = (np.abs(points_4d[:, 3]) > 0.005) & (projected_points[:, 2] > 0) & unmatched_points
 
     for i, point in enumerate(points_3d):
         if not valid_points[i]:

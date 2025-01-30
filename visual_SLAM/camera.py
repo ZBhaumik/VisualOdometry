@@ -1,6 +1,9 @@
 import numpy as np
 import cv2
 
+def add_ones(x):
+  return np.concatenate([x, np.ones((x.shape[0], 1))], axis=1)
+
 def featureMapping(image):
   orb = cv2.ORB_create()
   pts = cv2.goodFeaturesToTrack(image.astype(np.uint8), 1000, qualityLevel=0.01, minDistance=8)
@@ -9,7 +12,8 @@ def featureMapping(image):
   return np.array([(kp.pt[0], kp.pt[1]) for kp in key_pts]), descriptors
 
 def normalize(K_inv, pts):
-  return np.dot(K_inv, np.concatenate([pts, np.ones((pts.shape[0], 1))], axis=1).T).T[:, 0:2]
+  return (K_inv @ add_ones(pts).T).T[:, :2] # Returns normalized points, (x, y) coordinates.
+  #return np.dot(K_inv, np.concatenate([pts, np.ones((pts.shape[0], 1))], axis=1).T).T[:, 0:2]
 
 def denormalize(K, pt):
   ret = np.dot(K, np.array([pt[0], pt[1], 1.0]))

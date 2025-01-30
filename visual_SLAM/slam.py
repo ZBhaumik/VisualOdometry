@@ -3,9 +3,29 @@ import cv2
 import os
 import sys
 from camera import denormalize, normalize, Camera
-from match_frames import generate_match
+from match_frames import generate_match, relative_pose
 from desc import Descriptor, Point
 import matplotlib.pyplot as plt
+
+def get_scale(poses, t):
+    # Get XYZ coordinates at t-1, t, and then compute the scale.
+    prev_pose = poses[t-1][:3, 3]
+    curr_pose = poses[t][:3, 3]
+    scale = np.linalg.norm(curr_pose - prev_pose)
+    return scale
+
+def update_pose(pose, transform, scale):
+    rot = pose[:3, :3]
+    trans = pose[:3, 3]
+    rotation = transform[:3, :3]
+    translation = transform[:3, 3]
+
+    trans = trans + scale*rot.dot(translation)
+    rot = rot.dot(rotation)
+    ret = np.eye(4)
+    ret[:3, :3] = rot
+    ret[:3, 3] = trans
+    return ret
 
 def calibrate_image(image):
     return cv2.resize(image, (960, 540))
@@ -41,8 +61,10 @@ def process_frame(image):
 
     prev_frame = desc_dict.frames[-1]
     older_frame = desc_dict.frames[-2]
-    x1, x2, relative_pose = generate_match(prev_frame, older_frame)
-    prev_frame.pose = np.dot(relative_pose, older_frame.pose)
+
+    x1, x2, transform = relative_pose(prev_frame, older_frame, K)#generate_match(prev_frame, older_frame)
+    prev_frame.pose = update_pose(older_frame.pose, transform, scale)
+    print(prev_frame.pose[:3, 3])
 
     for i, idx in enumerate(x2):
         if older_frame.pts[idx] is not None:
@@ -50,9 +72,7 @@ def process_frame(image):
 
     points_3d = triangulate_points(prev_frame.pose, older_frame.pose, 
                                    prev_frame.key_pts[x1], older_frame.key_pts[x2])
-    
-    points_3d /= points_3d[:, 3:]  # Normalize homogeneous coordinates
-
+    points_3d /= points_3d[:, 3:]
     unmatched_points = np.array([prev_frame.pts[i] is None for i in x1])
     valid_points = (np.abs(points_3d[:, 3]) > 0.005) & (points_3d[:, 2] > 0) & unmatched_points
 
@@ -88,24 +108,32 @@ if __name__ == "__main__":
         P = np.reshape(calib_params, (3,4))
         K = P[:3, :3]
 
+     # Initialize Pose Data
+    poses = []
+    with open(os.path.abspath(os.curdir) + DATASET + "//poses.txt", 'r') as pose_data:
+        for line in pose_data:
+            pose_param = [float(coord) for coord in line.split(' ')]
+            pose_param = np.reshape(pose_param, (3,4))
+            #vstack to form a 4x4 pose matrix
+            pose_param = np.vstack((pose_param, [0,0,0,1]))
+            poses.append(pose_param)
+    
     desc_dict = Descriptor(K)
     desc_dict.create_viewer()
 
-    i = 0
 
-    for frame in video_frames:
-        print(i)
-        i = i+1
+    for t in range(1, len(video_frames)):
+        frame = video_frames[t]
         frame_resized = cv2.resize(frame, (720, 400))
-        processed_frame = process_frame(frame_resized)
-        #if(processed_frame is not None):
-            #cv2.imshow("Frame", processed_frame)
-        #else:
-            #cv2.imshow("Frame", frame_resized)
-        #if cv2.waitKey(1) & 0xFF == ord('q'):
-            #break
-        if(i == 150):
+        processed_frame = process_frame(cv2.resize(video_frames[t-1], (720, 400)), frame_resized, get_scale(poses, t))
+        if(processed_frame is not None):
+            cv2.imshow("Frame", processed_frame)
+        else:
+            cv2.imshow("Frame", frame_resized)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+        #if(t == 150):
+            #break
     #a, b = desc_dict.bundle_adjustment()
     desc_dict.pickle()
     #desc_dict.save_state()

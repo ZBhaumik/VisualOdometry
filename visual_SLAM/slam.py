@@ -63,7 +63,7 @@ def process_frame(image, scale):
     older_frame = desc_dict.frames[-2]
 
     x1, x2, transform = generate_match(prev_frame, older_frame)
-    prev_frame.pose = update_pose(older_frame.pose, transform, scale)
+    prev_frame.pose = update_pose(older_frame.pose, transform, scale)#np.dot(transform, older_frame.pose)#update_pose(older_frame.pose, transform, scale)
     print(prev_frame.pose[:3, 3])
 
     for i, idx in enumerate(x2):
@@ -91,7 +91,7 @@ def process_frame(image, scale):
         cv2.line(image, (u1, v1), (u2, v2), color=(255, 255, 0))
 
     # 3D point cloud visualization.
-    desc_dict.update()
+    desc_dict.update_viewer()
     return image
 
 if __name__ == "__main__":
@@ -140,5 +140,5 @@ if __name__ == "__main__":
     #plt.show()
     #plt.plot(b.fun)
     #plt.show()
-    #desc_dict.update_viewer()
+    
     cv2.destroyAllWindows()

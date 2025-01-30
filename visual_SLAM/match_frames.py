@@ -76,6 +76,6 @@ def generate_match(f1, f2):
   ret = np.array(ret)
   x1 = np.array(x1)
   x2 = np.array(x2)
-  model, f_pts = ransac((ret[:, 0], ret[:, 1]), EssentialMatrixTransform, min_samples=100, residual_threshold=0.001, max_trials=100)
+  model, f_pts = ransac((ret[:, 0], ret[:, 1]), EssentialMatrixTransform, min_samples=8, residual_threshold=0.001, max_trials=100)
   Rt = extractRt(model.params)
   return x1[f_pts], x2[f_pts], Rt

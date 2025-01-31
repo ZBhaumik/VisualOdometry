@@ -8,7 +8,8 @@ I wrote a robust monocular SLAM pipeline for use in autonomous systems, and have
 
 This allows me to do the localization part of S(L)AM. The next part is the mapping, which I think is really neat. Using the tracked keypoints across frames, the relative poses computed by RANSAC, and the focal parameters inherent to the camera, I am able to (approximately) triangulate the 3D positions of the points across frames. This allows me to create maps of the scene, as I know the approximate (x, y, z) position of my suggested points relative to my estimated pose, and can prevent duplication of points using the descriptors mentioned earlier. This gives me maps similar to this:
 
-![image](https://github.com/user-attachments/assets/0b3ab348-5b60-4865-ac20-96faafb6a3f7)
+<img src="https://github.com/user-attachments/assets/0b3ab348-5b60-4865-ac20-96faafb6a3f7" width="500" />
+<img src="https://github.com/user-attachments/assets/ac221182-e0e8-41e8-98b7-56847ee0265c" width="500" />
 
 (the start point is marked with a red flag, to make comparisons to the 2D map above).
 

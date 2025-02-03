@@ -60,11 +60,33 @@ class Descriptor:
         return cos_theta * points + sin_theta * np.cross(v, points) + dot * (1 - cos_theta) * v
     
     def project(self, points, camera_params):
-        """Convert 3-D points to 2-D by projecting onto images."""
+        """Convert 3-D points (world coordinates) to 2-D image coordinates."""
+        R_vecs = camera_params[:, :3]
+        t_vecs = camera_params[:, 3:6]
+        points_proj = np.zeros((points.shape[0], 2))
+        
+        for i in range(len(camera_params)):
+            pose = np.eye(4)
+            pose[:3, :3], _ = cv2.Rodrigues(R_vecs[i])
+            pose[:3, 3] = t_vecs[i]
+            pose_inv = np.linalg.inv(pose)
+            points_cam = np.dot(pose_inv[:3, :3], points[i].T).T + pose_inv[:3, 3]
+            points_img = (self.K @ points_cam.T).T
+            points_img = points_img[:2] / points_img[2, np.newaxis]
+            points_proj[i] = points_img
+        
+        
+        #pose = np.eye(4)
+        #pose[:3, :3] = cv2.Rodrigues(camera_params[:, :3])
+        #pose[:3, 3] = camera_params[:, 3:6]
+        #pose_inv = np.linalg.inv(pose)
+        #points_proj = np.dot(pose_inv[:3, :3], points.T).T + pose_inv[:3, 3]
+        """
         points_proj = self.rotate(points, camera_params[:, :3]) # Rotate
         points_proj += camera_params[:, 3:6] # Translate
         points_proj = np.dot(points_proj, self.K.T) # Project
         points_proj = points_proj[:, :2] / points_proj[:, 2, np.newaxis]
+        """
         return points_proj
     
     def fun(self, params, n_cameras, n_points, camera_indices, point_indices, points_2d):

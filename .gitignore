@@ -1,1 +1,6 @@
 images_00.npy
+visual_SLAM/filtered_data_00.pkl
+visual_SLAM/V_SLAM_Processed/saved_poses.npy
+visual_SLAM/V_SLAM_Processed/saved_pcd.pcd
+visual_SLAM/full_data_00.pkl
+visual_SLAM/V_SLAM_Processed/saved_pts.npy

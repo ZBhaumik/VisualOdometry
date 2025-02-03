@@ -1,6 +1,6 @@
 import open3d as o3d
 import numpy as np
-pcd = o3d.io.read_point_cloud("V_SLAM_Processed/enabled_BA_pcd.pcd")
+pcd = o3d.io.read_point_cloud("V_SLAM_Processed/saved_pcd.pcd")
 print(len(pcd.points))
 pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=1.0)
 print(len(pcd.points))

@@ -123,14 +123,15 @@ if __name__ == "__main__":
 
 
     for t in range(1, len(video_frames)):
+        print(t)
         frame = video_frames[t]
         processed_frame = process_frame(frame, get_scale(poses, t))
-        if(processed_frame is not None):
-            cv2.imshow("Frame", processed_frame)
-        else:
-            cv2.imshow("Frame", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        #if(processed_frame is not None):
+        #    cv2.imshow("Frame", processed_frame)
+        #else:
+        #    cv2.imshow("Frame", frame)
+        #if cv2.waitKey(1) & 0xFF == ord('q'):
+        #    break
         #if(t == 150):
             #break
     #a, b = desc_dict.bundle_adjustment()
